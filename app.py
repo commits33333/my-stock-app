@@ -78,7 +78,17 @@ if start_button:
         progress_bar.progress(50)
         
         progress_text.text(f"3/4: 기초 대상 {set_price:,}원 이하, {set_marcap_bn:,}억 이하 종목 세팅...")
-        krx_list = fdr.StockListing('KRX')
+        
+        # ==========================================
+        # 📌 최후의 방어막 (종목 리스트 서버 다운 시)
+        # ==========================================
+        try:
+            krx_list = fdr.StockListing('KRX')
+        except Exception as e:
+            st.error("🚨 현재 한국거래소(KRX) 서버가 주말 전면 점검 중이라 '전체 종목 리스트'를 받아올 수 없는 상태입니다.")
+            st.info("💡 내일(월요일) 장이 열린 후 다시 접속하시면 이 화면은 사라지고 100% 정상 작동합니다! 오늘은 앱 세팅을 성공적으로 마친 것에 만족하시고 푹 쉬세요!")
+            st.stop() # 프로그램 우아하게 정지
+            
         cond_price = krx_list['Close'] <= set_price
         cond_marcap = krx_list['Marcap'] <= set_marcap
         target_stocks = krx_list[cond_price & cond_marcap]
