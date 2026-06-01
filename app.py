@@ -18,12 +18,12 @@ st.title("🏆 실전 퀀트 멀티 팩터 대시보드 (초정밀 랭킹)")
 st.markdown("전체 시장을 분석하여 강력 추천 종목과 전체 흐름을 스캔합니다.")
 
 # ==========================================
-# 🚨 [신규 기능] 점수 산출 방법 도움말 팝업 버튼
+# 🚨 점수 산출 방법 도움말 팝업 버튼 (오타 수정 완료)
 # ==========================================
 with st.popover("💡 점수 산출 방법 도움말 보기"):
     st.markdown("### 🔬 초정밀 멀티 팩터 채점 기준표 (총 100점 만점)")
     
-    col1, col2, col3 = str.columns(3)
+    col1, col2, col3 = st.columns(3) 
     
     with col1:
         st.markdown("""
@@ -83,7 +83,6 @@ with st.popover("💡 점수 산출 방법 도움말 보기"):
 
 st.divider()
 
-# 🚨 메모리 칩 유지
 if 'scanned_data' not in st.session_state:
     st.session_state.scanned_data = None
 
@@ -272,9 +271,14 @@ if start_button:
                 total_score = fin_score + sup_score + chart_score
 
                 all_scored_stocks.append({
-                    '종목명': name, '종합점수': total_score,
-                    '재무점수': fin_score, '수급점수': sup_score, '차트점수': chart_score,
-                    '차트상태': chart_status, '차트채점내역': chart_detail_str, 
+                    '종목코드': code,  # 🚨 종목코드 추가 보관!
+                    '종목명': name, 
+                    '종합점수': total_score,
+                    '재무점수': fin_score, 
+                    '수급점수': sup_score, 
+                    '차트점수': chart_score,
+                    '차트상태': chart_status, 
+                    '차트채점내역': chart_detail_str, 
                     '현재가': f"{current_price:,}", 
                     'PER': round(per_val, 2) if per_val > 0 else 0,
                     'PBR': round(pbr_val, 2) if pbr_val > 0 else 0,
@@ -291,6 +295,10 @@ if start_button:
 
         if len(all_scored_stocks) > 0:
             result_df = pd.DataFrame(all_scored_stocks)
+            
+            # 🚨 종목코드를 이용해 네이버 금융 차트 주소 자동 생성!
+            result_df['바로가기'] = "https://finance.naver.com/item/main.naver?code=" + result_df['종목코드']
+            
             result_df = result_df.sort_values(by=['종합점수', '수급점수', '재무점수', 'PER'], ascending=[False, False, False, True]).reset_index(drop=True)
             result_df.insert(0, '종합순위', range(1, len(result_df) + 1))
             st.session_state.scanned_data = result_df
@@ -303,21 +311,31 @@ if start_button:
         st.code(traceback.format_exc())
 
 # ==========================================
-# 🚨 화면 출력 영역
+# 🚨 화면 출력 영역 (링크 버튼 설정 포함)
 # ==========================================
 if st.session_state.scanned_data is not None:
     result_df = st.session_state.scanned_data
 
     tab1, tab2, tab3, tab4 = st.tabs(["🏆 종합 전체 랭킹", "💼 재무/가치 랭킹", "🤝 수급주 랭킹", "📈 차트/타이밍 랭킹"])
 
-    all_cols = ['종합순위', '종목명', '종합점수', '재무점수', '수급점수', '차트점수', '차트상태', '차트채점내역', '현재가', 'PER', 'PBR', '배당률(%)', '외인매수(원)', '기관매수(원)', '거래량배수']
+    # 🚨 끝에 '바로가기' 열 추가
+    all_cols = ['종합순위', '종목명', '종합점수', '재무점수', '수급점수', '차트점수', '차트상태', '차트채점내역', '현재가', 'PER', 'PBR', '배당률(%)', '외인매수(원)', '기관매수(원)', '거래량배수', '바로가기']
+
+    # 🚨 스트림릿 마법의 기능: 더러운 URL 주소를 예쁜 클릭 버튼으로 변신시킵니다!
+    link_column_config = {
+        "바로가기": st.column_config.LinkColumn(
+            "📈 네이버 차트",
+            help="클릭하면 네이버 금융 해당 종목으로 이동합니다.",
+            display_text="🔗 차트 열기"  # 표에는 이 글자만 보임
+        )
+    }
 
     with tab1:
         st.subheader("🌟 [강력 추천] 종합 점수 랭킹 TOP 20")
-        st.dataframe(result_df[all_cols].head(20), use_container_width=True)
+        st.dataframe(result_df[all_cols].head(20), column_config=link_column_config, use_container_width=True)
         st.divider()
         st.subheader("📊 [종합 전체 스캔] 21위 ~ 나머지 전체")
-        st.dataframe(result_df[all_cols].iloc[20:], use_container_width=True)
+        st.dataframe(result_df[all_cols].iloc[20:], column_config=link_column_config, use_container_width=True)
 
     with tab2:
         fin_sorted = result_df.sort_values(by=['재무점수', 'PER'], ascending=[False, True]).reset_index(drop=True)
@@ -325,10 +343,10 @@ if st.session_state.scanned_data is not None:
         fin_cols = ['재무순위'] + all_cols 
         
         st.subheader("💼 [강력 추천] 다중 팩터 고득점 재무 우량주 TOP 20")
-        st.dataframe(fin_sorted[fin_cols].head(20), use_container_width=True)
+        st.dataframe(fin_sorted[fin_cols].head(20), column_config=link_column_config, use_container_width=True)
         st.divider()
         st.subheader("📊 [재무 전체 스캔] 21위 ~ 나머지 전체")
-        st.dataframe(fin_sorted[fin_cols].iloc[20:], use_container_width=True)
+        st.dataframe(fin_sorted[fin_cols].iloc[20:], column_config=link_column_config, use_container_width=True)
 
     with tab3:
         sup_sorted = result_df.sort_values(by=['수급점수', '외인매수(원)'], ascending=[False, False]).reset_index(drop=True)
@@ -336,10 +354,10 @@ if st.session_state.scanned_data is not None:
         sup_cols = ['수급순위'] + all_cols 
         
         st.subheader("🤝 [강력 추천] 금액별 차등 채점 - 수급 대장주 TOP 20")
-        st.dataframe(sup_sorted[sup_cols].head(20), use_container_width=True)
+        st.dataframe(sup_sorted[sup_cols].head(20), column_config=link_column_config, use_container_width=True)
         st.divider()
         st.subheader("📊 [수급 전체 스캔] 21위 ~ 나머지 전체")
-        st.dataframe(sup_sorted[sup_cols].iloc[20:], use_container_width=True)
+        st.dataframe(sup_sorted[sup_cols].iloc[20:], column_config=link_column_config, use_container_width=True)
 
     with tab4:
         st.subheader("📈 [차트 분석] 패턴별 대장주 분리 보기")
@@ -366,39 +384,39 @@ if st.session_state.scanned_data is not None:
             chart_cols = ['차트순위'] + all_cols
             
             st.subheader("🌟 [차트 TOP 20] 우상향 유력 종목")
-            st.dataframe(chart_top[chart_cols].head(20), use_container_width=True)
+            st.dataframe(chart_top[chart_cols].head(20), column_config=link_column_config, use_container_width=True)
             st.divider()
             st.subheader("📊 [차트 전체 스캔] 21위 ~ 나머지 전체")
-            st.dataframe(chart_top[chart_cols].iloc[20:], use_container_width=True)
+            st.dataframe(chart_top[chart_cols].iloc[20:], column_config=link_column_config, use_container_width=True)
             
         with chart_sub2:
             trend_top = chart_base_df[chart_base_df['차트상태'].isin(['정배열', '골든크로스'])].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
             trend_top.insert(0, '차트순위', range(1, len(trend_top) + 1))
             
             st.subheader("↗️ [정배열 & 골든크로스 TOP 20]")
-            st.dataframe(trend_top[['차트순위'] + all_cols].head(20), use_container_width=True)
+            st.dataframe(trend_top[['차트순위'] + all_cols].head(20), column_config=link_column_config, use_container_width=True)
             st.divider()
             st.subheader("📊 [정배열 & 골든크로스 전체 스캔]")
-            st.dataframe(trend_top[['차트순위'] + all_cols].iloc[20:], use_container_width=True)
+            st.dataframe(trend_top[['차트순위'] + all_cols].iloc[20:], column_config=link_column_config, use_container_width=True)
             
         with chart_sub3:
             reversal_top = chart_base_df[chart_base_df['차트상태'].isin(['바닥탈출', '밥그릇(U자)'])].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
             reversal_top.insert(0, '차트순위', range(1, len(reversal_top) + 1))
             
             st.subheader("💎 [밥그릇 & 바닥탈출 TOP 20]")
-            st.dataframe(reversal_top[['차트순위'] + all_cols].head(20), use_container_width=True)
+            st.dataframe(reversal_top[['차트순위'] + all_cols].head(20), column_config=link_column_config, use_container_width=True)
             st.divider()
             st.subheader("📊 [밥그릇 & 바닥탈출 전체 스캔]")
-            st.dataframe(reversal_top[['차트순위'] + all_cols].iloc[20:], use_container_width=True)
+            st.dataframe(reversal_top[['차트순위'] + all_cols].iloc[20:], column_config=link_column_config, use_container_width=True)
             
         with chart_sub4:
             vol_top = chart_base_df.sort_values(by='거래량배수', ascending=False).reset_index(drop=True)
             vol_top.insert(0, '차트순위', range(1, len(vol_top) + 1))
             
             st.subheader("🔥 [거래량 폭발 TOP 20]")
-            st.dataframe(vol_top[['차트순위'] + all_cols].head(20), use_container_width=True)
+            st.dataframe(vol_top[['차트순위'] + all_cols].head(20), column_config=link_column_config, use_container_width=True)
             st.divider()
             st.subheader("📊 [거래량 폭발 전체 스캔]")
-            st.dataframe(vol_top[['차트순위'] + all_cols].iloc[20:], use_container_width=True)
+            st.dataframe(vol_top[['차트순위'] + all_cols].iloc[20:], column_config=link_column_config, use_container_width=True)
 else:
     st.write("👈 왼쪽 사이드바에서 가격과 시가총액을 설정하신 후, **[🚀 전체 시장 종합 분석 시작]** 버튼을 눌러주세요!")
