@@ -45,7 +45,9 @@ if start_button:
     
     try:
         progress_text.text("1/4: 최신 거래일 확인 및 재무 데이터 싹쓸이 중...")
-        recent_days = fdr.DataReader('005930').tail(1)
+        
+        # 📌 9시 정각 에러 완벽 방어: 확실하게 마감된 '하루 전' 데이터 기준으로 재무 장부 조회
+        recent_days = fdr.DataReader('005930').tail(2)
         latest_date = recent_days.index[0].strftime("%Y%m%d")
         start_date = (datetime.today() - timedelta(days=180)).strftime('%Y-%m-%d')
         
@@ -55,7 +57,7 @@ if start_button:
             fund_kosdaq = stock.get_market_fundamental(latest_date, market="KOSDAQ")
             fund_df = pd.concat([fund_kospi, fund_kosdaq])
         except:
-            st.warning("⚠️ 현재 한국거래소(KRX) 주말 점검으로 '재무 데이터'를 가져올 수 없어 차트 점수만으로 분석합니다.")
+            st.warning("⚠️ 현재 한국거래소(KRX) 접속량 폭주로 '재무 데이터'를 가져올 수 없어 차트 점수만으로 분석합니다.")
             
         progress_bar.progress(25)
         
@@ -73,21 +75,19 @@ if start_button:
             inst_kosdaq = stock.get_market_net_purchases_of_equities_by_ticker(latest_date, latest_date, "KOSDAQ", "기관합계")
             inst_df = pd.concat([inst_kospi, inst_kosdaq])
         except:
-            st.warning("⚠️ 현재 한국거래소(KRX) 주말 점검으로 '수급 데이터'를 가져올 수 없어 차트 점수만으로 분석합니다.")
+            st.warning("⚠️ 현재 한국거래소(KRX) 접속량 폭주로 '수급 데이터'를 가져올 수 없어 차트 점수만으로 분석합니다.")
             
         progress_bar.progress(50)
         
         progress_text.text(f"3/4: 기초 대상 {set_price:,}원 이하, {set_marcap_bn:,}억 이하 종목 세팅...")
         
-        # ==========================================
         # 📌 최후의 방어막 (종목 리스트 서버 다운 시)
-        # ==========================================
         try:
             krx_list = fdr.StockListing('KRX')
         except Exception as e:
-            st.error("🚨 현재 한국거래소(KRX) 서버가 주말 전면 점검 중이라 '전체 종목 리스트'를 받아올 수 없는 상태입니다.")
-            st.info("💡 내일(월요일) 장이 열린 후 다시 접속하시면 이 화면은 사라지고 100% 정상 작동합니다! 오늘은 앱 세팅을 성공적으로 마친 것에 만족하시고 푹 쉬세요!")
-            st.stop() # 프로그램 우아하게 정지
+            st.error("🚨 현재 한국거래소(KRX) 서버 점검 중이라 '전체 종목 리스트'를 받아올 수 없는 상태입니다.")
+            st.info("💡 장이 완전히 열리고 서버가 안정화된 후 다시 접속하시면 100% 정상 작동합니다!")
+            st.stop()
             
         cond_price = krx_list['Close'] <= set_price
         cond_marcap = krx_list['Marcap'] <= set_marcap
@@ -100,6 +100,7 @@ if start_button:
             code = row['Code']
             name = row['Name']
             
+            # 📌 속도 최적화: 50종목마다 화면 업데이트
             if i % 50 == 0:
                 current_prog = 50 + int((i / total_count) * 50)
                 progress_bar.progress(min(current_prog, 99))
@@ -113,6 +114,7 @@ if start_button:
                 vol_ratio = 0
                 current_price = 0
                 
+                # 재무 채점 (어제 기준)
                 if code in fund_df.index and not fund_df.empty:
                     eps_val = fund_df.loc[code, 'EPS']
                     per_val = fund_df.loc[code, 'PER']
@@ -122,12 +124,14 @@ if start_button:
                             fin_score = 15
                             if per_val <= 10: fin_score += 15
                 
+                # 수급 채점 (어제 기준)
                 if code in foreigner_df.index and not foreigner_df.empty: f_buy = foreigner_df.loc[code, '순매수거래대금']
                 if code in inst_df.index and not inst_df.empty: i_buy = inst_df.loc[code, '순매수거래대금']
                 if f_buy > 0: sup_score += 15
                 if i_buy > 0: sup_score += 15
                 
                 try:
+                    # 📌 차트 및 거래량 채점 (가장 중요한 현재 1초 전까지의 실시간 흐름!)
                     df = fdr.DataReader(code, start_date)
                     if len(df) >= 60:
                         current_price = int(df['Close'].iloc[-1])
@@ -174,7 +178,7 @@ if start_button:
                 continue
                 
         progress_bar.progress(100)
-        progress_text.success("🎉 분석이 모두 완료되었습니다! 추천 종목과 전체 종목을 비교해 보세요.")
+        progress_text.success("🎉 실시간 스캔 완료! 추천 종목과 차트 흐름을 비교해 보세요.")
         
         if len(all_scored_stocks) > 0:
             result_df = pd.DataFrame(all_scored_stocks)
