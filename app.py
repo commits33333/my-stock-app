@@ -32,10 +32,17 @@ st.sidebar.header("⚙️ 분석 설정")
 st.sidebar.info("장중에는 거래소 상태에 따라 차트/거래량 위주로 자동 스캔합니다.")
 st.sidebar.divider()
 
+# 🚨 [업데이트] 우량주/대형주 제한 완전 해제!
 st.sidebar.subheader("🔍 타겟 종목 범위 필터")
-set_price = st.sidebar.number_input("최대 주가 (원 이하)", min_value=1000, max_value=1000000, value=50000, step=5000)
-set_marcap_bn = st.sidebar.number_input("최대 시가총액 (억 원 이하)", min_value=100, max_value=100000, value=5000, step=500)
-set_marcap = set_marcap_bn * 100000000
+set_price = st.sidebar.number_input("최대 주가 (원 이하)", min_value=1000, max_value=5000000, value=2000000, step=10000)
+set_marcap_bn = st.sidebar.number_input("최대 시가총액 (억 원 이하)", min_value=100, max_value=6000000, value=5000000, step=10000)
+st.sidebar.info("💡 현재 세팅: 시총 500조(삼성전자급) 우량주까지 모두 스캔합니다.")
+
+st.sidebar.divider()
+
+st.sidebar.subheader("💼 재무 채점 기준 (가치투자)")
+set_per = st.sidebar.number_input("허용할 최대 PER (이 수치 이하면 15점)", min_value=5, max_value=200, value=40, step=5)
+st.sidebar.info(f"💡 현재 세팅: 돈을 벌고 있는 흑자 기업 중, PER이 {set_per} 이하라면 재무 만점을 받습니다.")
 
 st.sidebar.divider()
 
@@ -134,10 +141,12 @@ if start_button:
                 if krx_success:
                     if code in fund_df.index and not fund_df.empty:
                         per_val = fund_df.loc[code, 'PER']
-                        if per_val > 0 and per_val <= 20: fin_score += 15
+                        if per_val > 0 and per_val <= set_per: fin_score += 15
+                        
                     if code in foreigner_df.index and not foreigner_df.empty:
                         f_buy = foreigner_df.loc[code, '순매수거래대금']
                         if f_buy > 0: sup_score += 15
+                        
                     if code in inst_df.index and not inst_df.empty:
                         i_buy = inst_df.loc[code, '순매수거래대금']
                         if i_buy > 0: sup_score += 15
@@ -172,7 +181,7 @@ if start_button:
         st.code(traceback.format_exc())
 
 # ==========================================
-# 🚨 화면 출력 영역 (모든 탭에서 전체 데이터 표시 완료!)
+# 🚨 화면 출력 영역
 # ==========================================
 if st.session_state.scanned_data is not None:
     result_df = st.session_state.scanned_data
@@ -191,7 +200,7 @@ if st.session_state.scanned_data is not None:
         fin_sorted['재무순위'] = range(1, len(fin_sorted) + 1)
         fin_display = fin_sorted[['재무순위', '종목명', '재무점수', 'PER', '현재가']]
         
-        st.subheader("💼 [강력 추천] 재무 저평가 TOP 20")
+        st.subheader(f"💼 [강력 추천] 재무 우량주 TOP 20 (PER {set_per} 이하)")
         st.dataframe(fin_display.head(20), use_container_width=True)
         st.divider()
         st.subheader("📊 [재무 전체 스캔] 21위 ~ 나머지 전체")
