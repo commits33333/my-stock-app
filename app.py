@@ -3,7 +3,7 @@ import os
 
 # 🚨 [필수 변경] KRX 정보데이터시스템(data.krx.co.kr)에 가입하신 진짜 이메일과 비밀번호를 넣어주세요.
 # 여기에 진짜 정보가 들어가야 한국거래소 인증을 통과하여 노란색 경고창이 사라집니다!
-os.environ['KRX_ID'] = 'bsp1199@naver.com'
+os.environ['KRX_ID'] = 'bsp5799'
 os.environ['KRX_PW'] = 'qlwkej00!!'
 
 import FinanceDataReader as fdr
