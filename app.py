@@ -17,7 +17,6 @@ st.set_page_config(page_title="실전 퀀트 대시보드", layout="wide")
 st.title("🏆 실전 퀀트 멀티 팩터 대시보드 (전천후 스캔)")
 st.markdown("전체 시장을 분석하여 강력 추천 종목과 전체 흐름을 스캔합니다.")
 
-# 🚨 메모리 칩 유지
 if 'scanned_data' not in st.session_state:
     st.session_state.scanned_data = None
 
@@ -32,10 +31,13 @@ st.sidebar.header("⚙️ 분석 설정")
 st.sidebar.info("장중에는 거래소 상태에 따라 차트/거래량 위주로 자동 스캔합니다.")
 st.sidebar.divider()
 
-# 🚨 [업데이트] 우량주/대형주 제한 완전 해제!
 st.sidebar.subheader("🔍 타겟 종목 범위 필터")
 set_price = st.sidebar.number_input("최대 주가 (원 이하)", min_value=1000, max_value=5000000, value=2000000, step=10000)
 set_marcap_bn = st.sidebar.number_input("최대 시가총액 (억 원 이하)", min_value=100, max_value=6000000, value=5000000, step=10000)
+
+# 🚨 [핵심 해결] 제가 빼먹었던 억 단위 -> 원 단위 변환 코드 부활!
+set_marcap = set_marcap_bn * 100000000 
+
 st.sidebar.info("💡 현재 세팅: 시총 500조(삼성전자급) 우량주까지 모두 스캔합니다.")
 
 st.sidebar.divider()
