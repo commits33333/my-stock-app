@@ -7,20 +7,19 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
-# 🚨기에 가입하신 KRX 일반 아이디와 비밀번호를 입력하세요.
+# 🚨 여기에 가입하신 KRX 일반 아이디와 비밀번호를 반드시 입력하세요.
 os.environ['KRX_ID'] = 'bsp5799'
 os.environ['KRX_PW'] = 'qlwkej00!!'
 
 import FinanceDataReader as fdr
 from pykrx import stock
 
-# 스트림릿 페이지 설정
 st.set_page_config(page_title="실전 퀀트 멀티 팩터 대시보드", layout="wide")
-st.title("🏆 실전 퀀트 멀티 팩터 대시보드")
-st.markdown("전체 시장을 입체적으로 분석하여 각 팩터별 최적의 종목을 스캔합니다.")
+st.title("🏆 실전 퀀트 멀티 팩터 대시보드 (선취매 탑재)")
+st.markdown("전체 시장을 분석하여 오르기 직전의 눌림목/임박 종목을 스캔합니다.")
 
 # ==========================================
-# 💡 점수 산출 방법 도움말 팝업 버튼 (정상화 완료)
+# 💡 점수 산출 방법 도움말 팝업
 # ==========================================
 with st.popover("💡 점수 산출 방법 도움말 보기"):
     st.markdown("### 🔬 초정밀 멀티 팩터 채점 기준표 (총 100점 만점)")
@@ -62,27 +61,26 @@ with st.popover("💡 점수 산출 방법 도움말 보기"):
     with col3:
         st.markdown("""
         #### 📈 3. 차트 점수 (최대 40점)
-        * **핵심 추세 패턴**
+        * **핵심 추세 패턴 (가장 높은 1개만 적용)**
+          * **눌림목(선취매): 25점** (오르기 전 숨고르기)
           * 밥그릇(U자) 반전: **25점**
-          * 골든크로스 (5-20일선): **20점**
-          * 대세 정배열 흐름: **15점**
+          * **골크임박(수렴): 20점** (폭발 직전 대기)
+          * 골든크로스: **20점**
+          * 대세 정배열: **15점**
           * 단기 바닥탈출: **10점**
-          * 20일선 단순회복: **5점**
-        * **세력 거래량 동반**
-          * 평소 거래량의 3배 이상: **+10점**
-          * 2배 이상 ~ 3배 미만: **+7점**
-          * 1.5배 이상 ~ 2배 미만: **+4점**
-          * 1배 이상 ~ 1.5배 미만: **+1점**
+        * **세력 거래량 동반 (가점)**
+          * 3배 이상 폭발: **+10점**
+          * 2배 이상: **+7점**
+          * 1.5배 이상: **+4점**
         * **RSI 심리 지표**
-          * 40 이상 ~ 60 이하 (황금진입): **+10점**
-          * 30-40 미만 또는 60 초과-70 이하: **+5점**
-          * 70 초과 (초과열 경고): **-10점 감점**
+          * 40~60 (황금진입): **+10점**
+          * 30-40 또는 60-70: **+5점**
+          * 70 초과 (초과열): **-10점 감점**
         """)
-    st.info("⚠️ 장중(오전)이거나 서버가 막혔을 때는 재무/수급 점수가 0점 처리되며, 차트 점수 위주로 채점됩니다.")
+    st.info("⚠️ 장중(오전)이거나 서버 차단 시에는 재무/수급이 0점 처리되며, 차트 점수 위주로 채점됩니다.")
 
 st.divider()
 
-# 세션 상태 초기화
 if 'scanned_data' not in st.session_state:
     st.session_state.scanned_data = None
 if 'krx_status' not in st.session_state:
@@ -92,7 +90,7 @@ def calculate_rsi(df, period=14):
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    loss = loss.replace(0, 1e-9)  # 0 나누기 방지
+    loss = loss.replace(0, 1e-9) 
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
@@ -128,9 +126,6 @@ st.sidebar.divider()
 
 start_button = st.sidebar.button("🚀 전체 시장 종합 분석 시작")
 
-# ==========================================
-# 📊 데이터 스캔 및 연산 로직
-# ==========================================
 if start_button:
     progress_text = st.empty()
     progress_bar = st.progress(0)
@@ -186,9 +181,8 @@ if start_button:
             if i % 10 == 0:
                 current_prog = 30 + int((i / total_count) * 70)
                 progress_bar.progress(min(current_prog, 99))
-                progress_text.text(f"3/4: 전 종목 핵심 지표 연산 중... ({i}/{total_count})")
+                progress_text.text(f"3/4: 선취매 예측 로직 연산 중... ({i}/{total_count})")
 
-            # 불량 및 규격 외 종목 사전 필터링
             if any(x in name for x in ['스팩', '스펙', '우선주', '원전']) or ('제' in name and '호' in name):
                 continue
 
@@ -218,24 +212,34 @@ if start_button:
                 day10_ago = df.iloc[-11]
 
                 if today['Vol20'] >= 50000 and not pd.isna(today['RSI']):
+                    vol_ratio = today['Volume'] / today['Vol20']
+
+                    # 🚨 기존 후행성 돌파 패턴
                     is_정배열 = today['Close'] > today['MA20'] and today['MA20'] > today['MA60']
                     is_바닥탈출 = (yest['MA20'] > today['MA20']) and (today['Close'] > today['MA20'])
-                    is_20일선회복 = today['Close'] > today['MA20']
                     is_골든크로스 = (yest['MA5'] <= yest['MA20']) and (today['MA5'] > today['MA20'])
                     is_밥그릇 = (day10_ago['MA20'] > yest['MA20']) and (today['MA20'] >= yest['MA20']) and (today['Close'] > today['MA60'])
                     
-                    vol_ratio = today['Volume'] / today['Vol20']
+                    # 🚨 [신규] 미리 잡는 선취매 패턴 2가지 (오르기 직전 세팅)
+                    # 1. 눌림목 (쉬어가는 꿀자리): 20일선이 살아있고, 주가가 20일선 위 3% 이내로 딱 붙어있으며, 거래량이 평소보다 죽어있을 때
+                    is_눌림목 = (today['MA20'] >= yest['MA20']) and (today['Close'] >= today['MA20']) and (today['Close'] <= today['MA20'] * 1.03) and (vol_ratio <= 0.8)
+                    
+                    # 2. 골크 임박 (발사 1초 전): 5일선이 아직 20일선 밑에 있지만 2% 이내로 초근접, 주가는 이미 5일선 위에 올라탔을 때
+                    is_골크임박 = (today['MA5'] < today['MA20']) and (today['MA5'] >= today['MA20'] * 0.98) and (today['Close'] > today['MA5'])
 
-                    if is_밥그릇:
+                    # 🚨 랭킹 우선순위 부여 (선취매 패턴에 최상위 계급 부여)
+                    if is_눌림목:
+                        chart_score += 25; chart_status = "눌림목(선취매)"; chart_details.append("눌림목(+25)")
+                    elif is_밥그릇:
                         chart_score += 25; chart_status = "밥그릇(U자)"; chart_details.append("밥그릇(+25)")
+                    elif is_골크임박:
+                        chart_score += 20; chart_status = "골크임박"; chart_details.append("골크임박(+20)")
                     elif is_골든크로스:
                         chart_score += 20; chart_status = "골든크로스"; chart_details.append("골든크로스(+20)")
                     elif is_정배열: 
                         chart_score += 15; chart_status = "정배열"; chart_details.append("정배열(+15)")
                     elif is_바닥탈출: 
                         chart_score += 10; chart_status = "바닥탈출"; chart_details.append("바닥탈출(+10)")
-                    elif is_20일선회복:
-                        chart_score += 5; chart_status = "20일선회복"; chart_details.append("20일선회복(+5)")
 
                     if chart_status != "일반/하락추세":
                         if vol_ratio >= 3.0: chart_score += 10; chart_details.append("거래량 3배(+10)")
@@ -316,11 +320,11 @@ if start_button:
             st.error("설정한 조건 범위 내에 매칭되는 종목이 존재하지 않습니다.")
 
     except Exception as e:
-        st.error("🚨 치명적 런타임 에러가 발생했습니다.")
+        st.error("🚨 런타임 에러가 발생했습니다.")
         st.code(traceback.format_exc())
 
 # ==========================================
-# 🚨 데이터 안전 렌더링 함수 (전체 컬럼 일치 기둥 구조)
+# 🚨 데이터 안전 렌더링 함수
 # ==========================================
 def display_safe_dataframe(df, cols, title, link_config):
     st.subheader(f"🌟 [{title} TOP 20]")
@@ -345,11 +349,10 @@ if st.session_state.scanned_data is not None:
     result_df = st.session_state.scanned_data
     
     if not st.session_state.krx_status:
-        st.error("🚨 **[서버 차단 알림] 과도한 중복 요청으로 거래소 노드가 임시 차단 상태입니다.** \n현재는 실시간 차트 점수 위주로 자동 계산 모드가 활성화되어 있습니다. 잠시 후 서버 잠금이 풀리면 재무 및 수급 데이터가 정상 산출됩니다.")
+        st.error("🚨 **[서버 차단 알림] 잦은 중복 요청으로 거래소 노드가 임시 차단 상태입니다.** \n현재는 차트 점수 위주로 계산 모드가 활성화되어 있습니다.")
 
     tab1, tab2, tab3, tab4 = st.tabs(["🏆 종합 전체 랭킹", "💼 재무/가치 랭킹", "🤝 수급주 랭킹", "📈 차트/타이밍 랭킹"])
 
-    # 전 탭 공통 항목 매핑 기둥
     all_cols = ['종합순위', '종목명', '종합점수', '재무점수', '수급점수', '차트점수', '차트상태', '차트채점내역', '현재가', 'PER', 'PBR', '배당률(%)', '외인매수(원)', '기관매수(원)', '거래량배수', '바로가기']
 
     link_column_config = {
@@ -374,9 +377,9 @@ if st.session_state.scanned_data is not None:
     with tab4:
         st.subheader("📈 [차트 분석] 패턴별 대장주 분리 보기")
         
-        # 각 차트 스펙트럼별 단독 서브 탭 7개 구축
-        chart_sub1, chart_sub2, chart_sub3, chart_sub4, chart_sub5, chart_sub6, chart_sub7 = st.tabs([
-            "🌟 종합 차트 우수", "⚡ 골든크로스 포착", "↗️ 대세 정배열", "🥣 밥그릇(U자) 반전", "🌱 단기 바닥탈출", "🔥 거래량 폭발", "🤝 외인매수+차트 교집합"
+        # 🚨 [신규 추가] 선취매 예측 탭 추가하여 총 8개 단독 서브 탭 구축!
+        chart_sub1, chart_sub2, chart_sub3, chart_sub4, chart_sub5, chart_sub6, chart_sub7, chart_sub8 = st.tabs([
+            "🌟 종합 차트 우수", "🎯 선취매(눌림목/임박)", "⚡ 골든크로스 포착", "↗️ 대세 정배열", "🥣 밥그릇(U자) 반전", "🌱 단기 바닥탈출", "🔥 거래량 폭발", "🤝 외인매수+차트 교집합"
         ])
 
         with chart_sub1:
@@ -384,26 +387,31 @@ if st.session_state.scanned_data is not None:
             display_safe_dataframe(chart_top, all_cols, "우상향 유력 종목", link_column_config)
             
         with chart_sub2:
+            st.info("💡 폭등하기 전에 미리 조용히 올라타는 '선취매' 전략 전용 탭입니다. 20일선에서 숨을 고르거나 골든크로스 직전인 종목을 잡습니다.")
+            early_top = result_df[result_df['차트상태'].isin(['눌림목(선취매)', '골크임박'])].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
+            display_safe_dataframe(early_top, all_cols, "눌림목 & 골크임박 (예측 매수)", link_column_config)
+            
+        with chart_sub3:
             gc_top = result_df[result_df['차트상태'] == '골든크로스'].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
             display_safe_dataframe(gc_top, all_cols, "골든크로스 포착 종목", link_column_config)
             
-        with chart_sub3:
+        with chart_sub4:
             jb_top = result_df[result_df['차트상태'] == '정배열'].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
             display_safe_dataframe(jb_top, all_cols, "대세 정배열 종목", link_column_config)
             
-        with chart_sub4:
+        with chart_sub5:
             bg_top = result_df[result_df['차트상태'] == '밥그릇(U자)'].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
             display_safe_dataframe(bg_top, all_cols, "밥그릇(U자) 반전 종목", link_column_config)
             
-        with chart_sub5:
+        with chart_sub6:
             bt_top = result_df[result_df['차트상태'] == '바닥탈출'].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
             display_safe_dataframe(bt_top, all_cols, "단기 바닥탈출 종목", link_column_config)
             
-        with chart_sub6:
+        with chart_sub7:
             vol_top = result_df.sort_values(by='거래량배수', ascending=False).reset_index(drop=True)
             display_safe_dataframe(vol_top, all_cols, "거래량 폭발", link_column_config)
             
-        with chart_sub7:
+        with chart_sub8:
             foreign_chart_df = result_df[result_df['외인매수(원)'] != "0"].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
             display_safe_dataframe(foreign_chart_df, all_cols, "외인매수 + 차트 우수 교집합", link_column_config)
 
