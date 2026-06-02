@@ -15,12 +15,13 @@ os.environ['KRX_PW'] = 'qlwkej00!!'
 import FinanceDataReader as fdr
 from pykrx import stock
 
+# 스트림릿 웹페이지 광폭 레이아웃 설정
 st.set_page_config(page_title="실전 퀀트 멀티 팩터 대시보드", layout="wide")
-st.title("🏆 실전 퀀트 멀티 팩터 대시보드 (프로 선취매 탑재)")
+st.title("🏆 실전 퀀트 멀티 팩터 대시보드 (최종 통합본)")
 st.markdown("전체 시장을 분석하여 세력의 매집 흔적이 있는 오르기 직전 종목을 스캔합니다.")
 
 # ==========================================
-# 💡 점수 산출 방법 도움말 팝업
+# 💡 점수 산출 방법 도움말 팝업 (취소선 오타 완벽 수정)
 # ==========================================
 with st.popover("💡 점수 산출 방법 도움말 보기"):
     st.markdown("### 🔬 초정밀 멀티 팩터 채점 기준표 (총 100점 만점)")
@@ -69,16 +70,19 @@ with st.popover("💡 점수 산출 방법 도움말 보기"):
           * 일반 눌림목(선취매): **20점**
           * 밥그릇(U자) 반전: **20점**
           * 골크임박(수렴): **15점**
-          * 돌파 (골크/정배열): **10~15점**
+          * 돌파 (골크/정배열): **10-15점**
         * **세력 거래량 동반 (가점)**
           * 3배 이상 폭발: **+10점** / 2배 이상: **+7점**
         * **RSI 심리 지표**
-          * 40~60 (황금진입): **+10점**
+          * 40 이상 - 60 이하 (황금진입): **+10점**
+          * 30-40 미만 또는 60 초과-70 이하: **+5점**
+          * 70 초과 (**초과열 경고**): **-10점 감점**
         """)
     st.info("⚠️ 장중(오전)이거나 서버 차단 시에는 재무/수급이 0점 처리되며, 차트 점수 위주로 채점됩니다.")
 
 st.divider()
 
+# 영구 메모리 공간 세팅
 if 'scanned_data' not in st.session_state:
     st.session_state.scanned_data = None
 if 'krx_status' not in st.session_state:
@@ -98,7 +102,7 @@ def calculate_rsi(df, period=14):
 st.sidebar.header("⚙️ 분석 설정")
 
 st.sidebar.subheader("⚡ 스캔 범위 모드")
-test_mode = st.sidebar.checkbox("1분 고속 테스트 모드 (시총 상위 100개)", value=False)
+test_mode = st.sidebar.checkbox("1분 고속 테스트 모드 (시총 상위 100개)", value=True)
 if test_mode:
     st.sidebar.success("✅ 상위 우량주 100개만 빠르게 검증합니다.")
 else:
@@ -115,6 +119,7 @@ set_marcap_bn = st.sidebar.number_input("최대 시가총액 (억 원 이하)", 
 
 min_marcap = min_marcap_bn * 100000000
 set_marcap = set_marcap_bn * 100000000 
+st.sidebar.info(f"💡 현재 세팅: 시가총액 {min_marcap_bn}억 이상 ~ 500조 우량주만 스캔하여 잡주를 걸러냅니다.")
 
 st.sidebar.divider()
 
@@ -124,6 +129,9 @@ st.sidebar.divider()
 
 start_button = st.sidebar.button("🚀 전체 시장 종합 분석 시작")
 
+# ==========================================
+# 📊 데이터 수집 및 멀티 팩터 연산 엔진
+# ==========================================
 if start_button:
     progress_text = st.empty()
     progress_bar = st.progress(0)
@@ -158,7 +166,7 @@ if start_button:
             st.session_state.krx_status = False
 
         progress_bar.progress(30)
-        progress_text.text("2/4: 필터링 조건 기둥 세팅 중...")
+        progress_text.text("2/4: 필터링 조건 세팅 중...")
 
         krx_list = fdr.StockListing('KRX').dropna(subset=['Close', 'Marcap'])
         cond_price = krx_list['Close'] <= set_price
@@ -176,11 +184,12 @@ if start_button:
             code = row['Code']
             name = row['Name']
 
-            if i % 10 == 0:
+            if i % 5 == 0:
                 current_prog = 30 + int((i / total_count) * 70)
                 progress_bar.progress(min(current_prog, 99))
-                progress_text.text(f"3/4: 프로 선취매 로직 연산 중... ({i}/{total_count})")
+                progress_text.text(f"3/4: 세력 흔적 스캔 및 팩터 연산 중... ({i}/{total_count})")
 
+            # 불량 및 대형 지수 껍데기 종목 원천 차단
             if any(x in name for x in ['스팩', '스펙', '우선주', '원전']) or ('제' in name and '호' in name):
                 continue
 
@@ -212,32 +221,28 @@ if start_button:
                 if today['Vol20'] >= 50000 and not pd.isna(today['RSI']):
                     vol_ratio = today['Volume'] / today['Vol20']
 
-                    # 🚨 1. VCP (변동성 축소 패턴)
+                    # 🚨 1. VCP 패턴 연산
                     recent_5_high = df['High'].iloc[-5:].max()
                     recent_5_low = df['Low'].iloc[-5:].min()
                     recent_20_high = df['High'].iloc[-20:].max()
                     recent_20_low = df['Low'].iloc[-20:].min()
-                    # 20일 변동성 대비 최근 5일 변동성이 40% 이하로 쪼그라들고, 주가는 20일선 위에 있으며 거래량이 평소보다 죽었을 때
                     is_VCP = ((recent_5_high - recent_5_low) < (recent_20_high - recent_20_low) * 0.4) and (today['Close'] >= today['MA20']) and (today['Volume'] < today['Vol20'])
 
-                    # 🚨 2. 상승 다이버전스
+                    # 🚨 2. 상승 다이버전스 연산
                     past_price = df['Close'].iloc[-11]
                     past_rsi = df['RSI'].iloc[-11]
-                    # 주가는 10일 전보다 빠졌는데, RSI는 올라갔고 최근 RSI가 바닥(35 이하)을 찍고 올라오는 중일 때
                     is_다이버전스 = (today['Close'] < past_price) and (today['RSI'] > past_rsi) and (today['RSI'] > 40) and (df['RSI'].iloc[-15:].min() < 35)
 
-                    # 🚨 3. 돌파 갭 (지지) 선취매
+                    # 🚨 3. 돌파 갭 지지 연산
                     is_갭눌림 = False
-                    for j in range(2, 6): # 최근 2~5일 전 탐색
-                        if df['Low'].iloc[-j] > df['High'].iloc[-(j+1)] * 1.03: # 3% 이상 갭 발생
-                            # 갭 발생 이후 최저가가 갭 상단(전일 고가)을 깨지 않고 지지 중일 때
+                    for j in range(2, 6):
+                        if df['Low'].iloc[-j] > df['High'].iloc[-(j+1)] * 1.03:
                             if df['Low'].iloc[-j+1:].min() >= df['High'].iloc[-(j+1)]:
                                 is_갭눌림 = True
                                 break
-                    # 거래량이 마르면서 지지해야 진짜
                     is_갭눌림 = is_갭눌림 and (today['Volume'] < today['Vol20'])
 
-                    # 기존 서브 패턴
+                    # 일반 패턴 라인업
                     is_눌림목 = (today['MA20'] >= yest['MA20']) and (today['Close'] >= today['MA20']) and (today['Close'] <= today['MA20'] * 1.03) and (vol_ratio <= 0.8)
                     is_골크임박 = (today['MA5'] < today['MA20']) and (today['MA5'] >= today['MA20'] * 0.98) and (today['Close'] > today['MA5'])
                     is_밥그릇 = (day10_ago['MA20'] > yest['MA20']) and (today['MA20'] >= yest['MA20']) and (today['Close'] > today['MA60'])
@@ -245,7 +250,7 @@ if start_button:
                     is_정배열 = today['Close'] > today['MA20'] and today['MA20'] > today['MA60']
                     is_바닥탈출 = (yest['MA20'] > today['MA20']) and (today['Close'] > today['MA20'])
 
-                    # 🚨 랭킹 우선순위 (프로 선취매 패턴에 압도적 점수 부여)
+                    # 🔬 우선순위 스코어링 매트릭스 적용
                     if is_VCP:
                         chart_score += 25; chart_status = "VCP(변동성축소)"; chart_details.append("VCP(+25)")
                     elif is_다이버전스:
@@ -331,7 +336,7 @@ if start_button:
                 continue
 
         progress_bar.progress(100)
-        progress_text.success("🎉 정밀 매트릭스 스캔 완료!")
+        progress_text.success("🎉 멀티 팩터 계량 연산 완료!")
 
         if len(all_scored_stocks) > 0:
             result_df = pd.DataFrame(all_scored_stocks)
@@ -341,48 +346,76 @@ if start_button:
             st.session_state.scanned_data = result_df
         else:
             st.session_state.scanned_data = None
-            st.error("설정한 조건 범위 내에 매칭되는 종목이 존재하지 않습니다.")
+            st.error("지정한 조건 범위 필터에 부합하는 종목이 시장에 없습니다.")
 
     except Exception as e:
-        st.error("🚨 런타임 에러가 발생했습니다.")
+        st.error("🚨 시스템 런타임 에러가 발생했습니다.")
         st.code(traceback.format_exc())
 
 # ==========================================
-# 🚨 데이터 안전 렌더링 함수
+# 🚨 [안전 장치] 표 그리기 및 독립 엑셀 다운로드 렌더러 함수
 # ==========================================
 def display_safe_dataframe(df, cols, title, link_config):
-    st.subheader(f"🌟 [{title} TOP 20]")
+    # 상단 TOP 20 파트 구성
+    col1, col2 = st.columns([8, 2])
+    with col1:
+        st.subheader(f"🌟 [{title} TOP 20]")
+        
     if len(df) == 0:
-        st.info("⚠️ 현재 시장에서 해당 조건에 부합하는 타겟 종목이 없습니다.")
+        st.info("⚠️ 현재 시장조건 하에 매칭되는 종목이 없어 빈 표를 출력합니다.")
         st.dataframe(pd.DataFrame(columns=cols), column_config=link_config, use_container_width=True)
     else:
+        with col2:
+            csv_top = df[cols].head(20).to_csv(index=False, encoding='utf-8-sig')
+            st.download_button(
+                label="📥 TOP 20 엑셀 다운로드",
+                data=csv_top,
+                file_name=f"{title}_TOP20.csv",
+                mime="text/csv",
+                key=f"{title}_top"
+            )
         st.dataframe(df[cols].head(20), column_config=link_config, use_container_width=True)
         
     st.divider()
-    st.subheader(f"📊 [{title} 21위 ~ 나머지 전체]")
+    
+    # 하위 나머지 전체 파트 구성
+    col3, col4 = st.columns([8, 2])
+    with col3:
+        st.subheader(f"📊 [{title} 21위 ~ 나머지 전체]")
+        
     if len(df) <= 20:
-        st.info("⚠️ 하위 후속 순위 종목이 존재하지 않습니다.")
+        st.info("⚠️ 후속 순위를 마크한 종목이 존재하지 않습니다.")
         st.dataframe(pd.DataFrame(columns=cols), column_config=link_config, use_container_width=True)
     else:
+        with col4:
+            csv_rest = df[cols].iloc[20:].to_csv(index=False, encoding='utf-8-sig')
+            st.download_button(
+                label="📥 나머지 전체 엑셀 다운로드",
+                data=csv_rest,
+                file_name=f"{title}_나머지.csv",
+                mime="text/csv",
+                key=f"{title}_rest"
+            )
         st.dataframe(df[cols].iloc[20:], column_config=link_config, use_container_width=True)
 
 # ==========================================
-# 🖥️ 메인 화면 뷰 출력 영역
+# 🖥️ 메인 대시보드 화면 뷰 출력단
 # ==========================================
 if st.session_state.scanned_data is not None:
     result_df = st.session_state.scanned_data
     
     if not st.session_state.krx_status:
-        st.error("🚨 **[서버 차단 알림] 잦은 중복 요청으로 거래소 노드가 임시 차단 상태입니다.** \n현재는 차트 점수 위주로 계산 모드가 활성화되어 있습니다.")
+        st.error("🚨 **[서버 차단 알림] 한국거래소(KRX) 노드 접속이 제한된 상태입니다.** \n현재 시스템은 실시간 차트 점수 단독 산출 모드로 구동 중입니다. 차단이 풀리면 재무/수급 분석이 자동 재개됩니다.")
 
     tab1, tab2, tab3, tab4 = st.tabs(["🏆 종합 전체 랭킹", "💼 재무/가치 랭킹", "🤝 수급주 랭킹", "📈 차트/타이밍 랭킹"])
 
+    # 공통 기둥형 컬럼 구조 정의
     all_cols = ['종합순위', '종목명', '종합점수', '재무점수', '수급점수', '차트점수', '차트상태', '차트채점내역', '현재가', 'PER', 'PBR', '배당률(%)', '외인매수(원)', '기관매수(원)', '거래량배수', '바로가기']
 
     link_column_config = {
         "바로가기": st.column_config.LinkColumn(
             "📈 네이버 차트",
-            help="클릭하면 네이버 금융 새 창으로 직행합니다.",
+            help="클릭 시 해당 주식의 네이버 금융 차트 창이 새 탭으로 팝업됩니다.",
             display_text="🔗 차트 열기"
         )
     }
@@ -401,7 +434,7 @@ if st.session_state.scanned_data is not None:
     with tab4:
         st.subheader("📈 [차트 분석] 패턴별 대장주 분리 보기")
         
-        # 🚨 [신규] 기존 탭들을 깔끔하게 통폐합하고 VIP 선취매 탭 신설!
+        # 화면 튕김 현상을 근본적으로 봉쇄한 7단 수평 서브 탭 시스템
         chart_sub1, chart_sub2, chart_sub3, chart_sub4, chart_sub5, chart_sub6, chart_sub7 = st.tabs([
             "🌟 차트 종합", "🎯 프로 선취매 (VCP/다이버/갭)", "⏳ 일반 선취매 (눌림목/임박)", "⚡ 돌파 (골크/정배열)", "🥣 바닥 (밥그릇/탈출)", "🔥 거래량 폭발", "🤝 외인 수급 교집합"
         ])
@@ -411,12 +444,12 @@ if st.session_state.scanned_data is not None:
             display_safe_dataframe(chart_top, all_cols, "우상향 유력 종목", link_column_config)
             
         with chart_sub2:
-            st.info("💡 실전 트레이더들이 사용하는 가장 신뢰도 높은 폭등 전조증상 (VCP, 다이버전스, 돌파갭 지지) 종목들입니다.")
+            st.info("💡 실전 고수들이 신뢰하는 3대 폭등 전조 현상 (VCP 변동성 축소, 상승 다이버전스, 돌파갭 지지 타점) 종목군입니다.")
             pro_top = result_df[result_df['차트상태'].isin(['VCP(변동성축소)', '상승다이버전스', '돌파갭(지지)'])].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
             display_safe_dataframe(pro_top, all_cols, "프로 선취매 (폭발 임박)", link_column_config)
             
         with chart_sub3:
-            st.info("💡 20일선에서 조용히 숨을 고르거나, 5일선이 골든크로스를 내기 직전인 안전한 타점입니다.")
+            st.info("💡 급등 후 20일선에 예쁘게 안착하여 지지받거나, 골든크로스를 터뜨리기 직전인 길목 지키기 타점입니다.")
             early_top = result_df[result_df['차트상태'].isin(['눌림목(선취매)', '골크임박'])].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
             display_safe_dataframe(early_top, all_cols, "일반 선취매 (안전 타점)", link_column_config)
             
@@ -437,4 +470,4 @@ if st.session_state.scanned_data is not None:
             display_safe_dataframe(foreign_chart_df, all_cols, "외인매수 + 차트 우수 교집합", link_column_config)
 
 else:
-    st.write("👈 왼쪽 사이드바에서 필터를 지정한 뒤 **[🚀 전체 시장 종합 분석 시작]**을 눌러 스캔을 시작해 주세요.")
+    st.write("👈 좌측 사이드바에서 필터 조건 및 마켓 범위를 세팅하신 뒤 **[🚀 전체 시장 종합 분석 시작]** 버튼을 클릭해 주세요.")
