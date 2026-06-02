@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 import traceback
 import warnings
@@ -15,8 +16,8 @@ import FinanceDataReader as fdr
 from pykrx import stock
 
 st.set_page_config(page_title="실전 퀀트 멀티 팩터 대시보드", layout="wide")
-st.title("🏆 실전 퀀트 멀티 팩터 대시보드 (선취매 탑재)")
-st.markdown("전체 시장을 분석하여 오르기 직전의 눌림목/임박 종목을 스캔합니다.")
+st.title("🏆 실전 퀀트 멀티 팩터 대시보드 (프로 선취매 탑재)")
+st.markdown("전체 시장을 분석하여 세력의 매집 흔적이 있는 오르기 직전 종목을 스캔합니다.")
 
 # ==========================================
 # 💡 점수 산출 방법 도움말 팝업
@@ -61,21 +62,18 @@ with st.popover("💡 점수 산출 방법 도움말 보기"):
     with col3:
         st.markdown("""
         #### 📈 3. 차트 점수 (최대 40점)
-        * **핵심 추세 패턴 (가장 높은 1개만 적용)**
-          * **눌림목(선취매): 25점** (오르기 전 숨고르기)
-          * 밥그릇(U자) 반전: **25점**
-          * **골크임박(수렴): 20점** (폭발 직전 대기)
-          * 골든크로스: **20점**
-          * 대세 정배열: **15점**
-          * 단기 바닥탈출: **10점**
+        * **핵심 추세 패턴 (프로 선취매 최우선)**
+          * **VCP (변동성축소): 25점** (수급 마름, 폭발 직전)
+          * **상승다이버전스: 25점** (은밀한 바닥 탈출)
+          * **돌파갭(지지): 25점** (기관 세력 개입 후 안착)
+          * 일반 눌림목(선취매): **20점**
+          * 밥그릇(U자) 반전: **20점**
+          * 골크임박(수렴): **15점**
+          * 돌파 (골크/정배열): **10~15점**
         * **세력 거래량 동반 (가점)**
-          * 3배 이상 폭발: **+10점**
-          * 2배 이상: **+7점**
-          * 1.5배 이상: **+4점**
+          * 3배 이상 폭발: **+10점** / 2배 이상: **+7점**
         * **RSI 심리 지표**
           * 40~60 (황금진입): **+10점**
-          * 30-40 또는 60-70: **+5점**
-          * 70 초과 (초과열): **-10점 감점**
         """)
     st.info("⚠️ 장중(오전)이거나 서버 차단 시에는 재무/수급이 0점 처리되며, 차트 점수 위주로 채점됩니다.")
 
@@ -181,7 +179,7 @@ if start_button:
             if i % 10 == 0:
                 current_prog = 30 + int((i / total_count) * 70)
                 progress_bar.progress(min(current_prog, 99))
-                progress_text.text(f"3/4: 선취매 예측 로직 연산 중... ({i}/{total_count})")
+                progress_text.text(f"3/4: 프로 선취매 로직 연산 중... ({i}/{total_count})")
 
             if any(x in name for x in ['스팩', '스펙', '우선주', '원전']) or ('제' in name and '호' in name):
                 continue
@@ -214,32 +212,58 @@ if start_button:
                 if today['Vol20'] >= 50000 and not pd.isna(today['RSI']):
                     vol_ratio = today['Volume'] / today['Vol20']
 
-                    # 🚨 기존 후행성 돌파 패턴
+                    # 🚨 1. VCP (변동성 축소 패턴)
+                    recent_5_high = df['High'].iloc[-5:].max()
+                    recent_5_low = df['Low'].iloc[-5:].min()
+                    recent_20_high = df['High'].iloc[-20:].max()
+                    recent_20_low = df['Low'].iloc[-20:].min()
+                    # 20일 변동성 대비 최근 5일 변동성이 40% 이하로 쪼그라들고, 주가는 20일선 위에 있으며 거래량이 평소보다 죽었을 때
+                    is_VCP = ((recent_5_high - recent_5_low) < (recent_20_high - recent_20_low) * 0.4) and (today['Close'] >= today['MA20']) and (today['Volume'] < today['Vol20'])
+
+                    # 🚨 2. 상승 다이버전스
+                    past_price = df['Close'].iloc[-11]
+                    past_rsi = df['RSI'].iloc[-11]
+                    # 주가는 10일 전보다 빠졌는데, RSI는 올라갔고 최근 RSI가 바닥(35 이하)을 찍고 올라오는 중일 때
+                    is_다이버전스 = (today['Close'] < past_price) and (today['RSI'] > past_rsi) and (today['RSI'] > 40) and (df['RSI'].iloc[-15:].min() < 35)
+
+                    # 🚨 3. 돌파 갭 (지지) 선취매
+                    is_갭눌림 = False
+                    for j in range(2, 6): # 최근 2~5일 전 탐색
+                        if df['Low'].iloc[-j] > df['High'].iloc[-(j+1)] * 1.03: # 3% 이상 갭 발생
+                            # 갭 발생 이후 최저가가 갭 상단(전일 고가)을 깨지 않고 지지 중일 때
+                            if df['Low'].iloc[-j+1:].min() >= df['High'].iloc[-(j+1)]:
+                                is_갭눌림 = True
+                                break
+                    # 거래량이 마르면서 지지해야 진짜
+                    is_갭눌림 = is_갭눌림 and (today['Volume'] < today['Vol20'])
+
+                    # 기존 서브 패턴
+                    is_눌림목 = (today['MA20'] >= yest['MA20']) and (today['Close'] >= today['MA20']) and (today['Close'] <= today['MA20'] * 1.03) and (vol_ratio <= 0.8)
+                    is_골크임박 = (today['MA5'] < today['MA20']) and (today['MA5'] >= today['MA20'] * 0.98) and (today['Close'] > today['MA5'])
+                    is_밥그릇 = (day10_ago['MA20'] > yest['MA20']) and (today['MA20'] >= yest['MA20']) and (today['Close'] > today['MA60'])
+                    is_골든크로스 = (yest['MA5'] <= yest['MA20']) and (today['MA5'] > today['MA20'])
                     is_정배열 = today['Close'] > today['MA20'] and today['MA20'] > today['MA60']
                     is_바닥탈출 = (yest['MA20'] > today['MA20']) and (today['Close'] > today['MA20'])
-                    is_골든크로스 = (yest['MA5'] <= yest['MA20']) and (today['MA5'] > today['MA20'])
-                    is_밥그릇 = (day10_ago['MA20'] > yest['MA20']) and (today['MA20'] >= yest['MA20']) and (today['Close'] > today['MA60'])
-                    
-                    # 🚨 [신규] 미리 잡는 선취매 패턴 2가지 (오르기 직전 세팅)
-                    # 1. 눌림목 (쉬어가는 꿀자리): 20일선이 살아있고, 주가가 20일선 위 3% 이내로 딱 붙어있으며, 거래량이 평소보다 죽어있을 때
-                    is_눌림목 = (today['MA20'] >= yest['MA20']) and (today['Close'] >= today['MA20']) and (today['Close'] <= today['MA20'] * 1.03) and (vol_ratio <= 0.8)
-                    
-                    # 2. 골크 임박 (발사 1초 전): 5일선이 아직 20일선 밑에 있지만 2% 이내로 초근접, 주가는 이미 5일선 위에 올라탔을 때
-                    is_골크임박 = (today['MA5'] < today['MA20']) and (today['MA5'] >= today['MA20'] * 0.98) and (today['Close'] > today['MA5'])
 
-                    # 🚨 랭킹 우선순위 부여 (선취매 패턴에 최상위 계급 부여)
-                    if is_눌림목:
-                        chart_score += 25; chart_status = "눌림목(선취매)"; chart_details.append("눌림목(+25)")
+                    # 🚨 랭킹 우선순위 (프로 선취매 패턴에 압도적 점수 부여)
+                    if is_VCP:
+                        chart_score += 25; chart_status = "VCP(변동성축소)"; chart_details.append("VCP(+25)")
+                    elif is_다이버전스:
+                        chart_score += 25; chart_status = "상승다이버전스"; chart_details.append("다이버전스(+25)")
+                    elif is_갭눌림:
+                        chart_score += 25; chart_status = "돌파갭(지지)"; chart_details.append("갭눌림(+25)")
+                    elif is_눌림목:
+                        chart_score += 20; chart_status = "눌림목(선취매)"; chart_details.append("눌림목(+20)")
                     elif is_밥그릇:
-                        chart_score += 25; chart_status = "밥그릇(U자)"; chart_details.append("밥그릇(+25)")
+                        chart_score += 20; chart_status = "밥그릇(U자)"; chart_details.append("밥그릇(+20)")
                     elif is_골크임박:
-                        chart_score += 20; chart_status = "골크임박"; chart_details.append("골크임박(+20)")
+                        chart_score += 15; chart_status = "골크임박"; chart_details.append("골크임박(+15)")
                     elif is_골든크로스:
-                        chart_score += 20; chart_status = "골든크로스"; chart_details.append("골든크로스(+20)")
+                        chart_score += 15; chart_status = "골든크로스"; chart_details.append("골든크로스(+15)")
                     elif is_정배열: 
-                        chart_score += 15; chart_status = "정배열"; chart_details.append("정배열(+15)")
+                        chart_score += 10; chart_status = "정배열"; chart_details.append("정배열(+10)")
                     elif is_바닥탈출: 
-                        chart_score += 10; chart_status = "바닥탈출"; chart_details.append("바닥탈출(+10)")
+                        chart_score += 5; chart_status = "바닥탈출"; chart_details.append("바닥탈출(+5)")
 
                     if chart_status != "일반/하락추세":
                         if vol_ratio >= 3.0: chart_score += 10; chart_details.append("거래량 3배(+10)")
@@ -377,9 +401,9 @@ if st.session_state.scanned_data is not None:
     with tab4:
         st.subheader("📈 [차트 분석] 패턴별 대장주 분리 보기")
         
-        # 🚨 [신규 추가] 선취매 예측 탭 추가하여 총 8개 단독 서브 탭 구축!
-        chart_sub1, chart_sub2, chart_sub3, chart_sub4, chart_sub5, chart_sub6, chart_sub7, chart_sub8 = st.tabs([
-            "🌟 종합 차트 우수", "🎯 선취매(눌림목/임박)", "⚡ 골든크로스 포착", "↗️ 대세 정배열", "🥣 밥그릇(U자) 반전", "🌱 단기 바닥탈출", "🔥 거래량 폭발", "🤝 외인매수+차트 교집합"
+        # 🚨 [신규] 기존 탭들을 깔끔하게 통폐합하고 VIP 선취매 탭 신설!
+        chart_sub1, chart_sub2, chart_sub3, chart_sub4, chart_sub5, chart_sub6, chart_sub7 = st.tabs([
+            "🌟 차트 종합", "🎯 프로 선취매 (VCP/다이버/갭)", "⏳ 일반 선취매 (눌림목/임박)", "⚡ 돌파 (골크/정배열)", "🥣 바닥 (밥그릇/탈출)", "🔥 거래량 폭발", "🤝 외인 수급 교집합"
         ])
 
         with chart_sub1:
@@ -387,31 +411,28 @@ if st.session_state.scanned_data is not None:
             display_safe_dataframe(chart_top, all_cols, "우상향 유력 종목", link_column_config)
             
         with chart_sub2:
-            st.info("💡 폭등하기 전에 미리 조용히 올라타는 '선취매' 전략 전용 탭입니다. 20일선에서 숨을 고르거나 골든크로스 직전인 종목을 잡습니다.")
-            early_top = result_df[result_df['차트상태'].isin(['눌림목(선취매)', '골크임박'])].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
-            display_safe_dataframe(early_top, all_cols, "눌림목 & 골크임박 (예측 매수)", link_column_config)
+            st.info("💡 실전 트레이더들이 사용하는 가장 신뢰도 높은 폭등 전조증상 (VCP, 다이버전스, 돌파갭 지지) 종목들입니다.")
+            pro_top = result_df[result_df['차트상태'].isin(['VCP(변동성축소)', '상승다이버전스', '돌파갭(지지)'])].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
+            display_safe_dataframe(pro_top, all_cols, "프로 선취매 (폭발 임박)", link_column_config)
             
         with chart_sub3:
-            gc_top = result_df[result_df['차트상태'] == '골든크로스'].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
-            display_safe_dataframe(gc_top, all_cols, "골든크로스 포착 종목", link_column_config)
+            st.info("💡 20일선에서 조용히 숨을 고르거나, 5일선이 골든크로스를 내기 직전인 안전한 타점입니다.")
+            early_top = result_df[result_df['차트상태'].isin(['눌림목(선취매)', '골크임박'])].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
+            display_safe_dataframe(early_top, all_cols, "일반 선취매 (안전 타점)", link_column_config)
             
         with chart_sub4:
-            jb_top = result_df[result_df['차트상태'] == '정배열'].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
-            display_safe_dataframe(jb_top, all_cols, "대세 정배열 종목", link_column_config)
+            breakout_top = result_df[result_df['차트상태'].isin(['골든크로스', '정배열'])].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
+            display_safe_dataframe(breakout_top, all_cols, "돌파 추세 종목", link_column_config)
             
         with chart_sub5:
-            bg_top = result_df[result_df['차트상태'] == '밥그릇(U자)'].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
-            display_safe_dataframe(bg_top, all_cols, "밥그릇(U자) 반전 종목", link_column_config)
+            bottom_top = result_df[result_df['차트상태'].isin(['밥그릇(U자)', '바닥탈출'])].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
+            display_safe_dataframe(bottom_top, all_cols, "바닥권 턴어라운드 종목", link_column_config)
             
         with chart_sub6:
-            bt_top = result_df[result_df['차트상태'] == '바닥탈출'].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
-            display_safe_dataframe(bt_top, all_cols, "단기 바닥탈출 종목", link_column_config)
-            
-        with chart_sub7:
             vol_top = result_df.sort_values(by='거래량배수', ascending=False).reset_index(drop=True)
             display_safe_dataframe(vol_top, all_cols, "거래량 폭발", link_column_config)
             
-        with chart_sub8:
+        with chart_sub7:
             foreign_chart_df = result_df[result_df['외인매수(원)'] != "0"].sort_values(by='차트점수', ascending=False).reset_index(drop=True)
             display_safe_dataframe(foreign_chart_df, all_cols, "외인매수 + 차트 우수 교집합", link_column_config)
 
