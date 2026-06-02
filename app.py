@@ -1,3 +1,4 @@
+
 import streamlit as st
 import os
 import pandas as pd
@@ -21,7 +22,7 @@ st.title("🏆 실전 퀀트 멀티 팩터 대시보드 (최종 통합본)")
 st.markdown("전체 시장을 분석하여 세력의 매집 흔적이 있는 오르기 직전 종목을 스캔합니다.")
 
 # ==========================================
-# 💡 점수 산출 방법 도움말 팝업 (취소선 오타 완벽 수정)
+# 💡 점수 산출 방법 도움말 팝업
 # ==========================================
 with st.popover("💡 점수 산출 방법 도움말 보기"):
     st.markdown("### 🔬 초정밀 멀티 팩터 채점 기준표 (총 100점 만점)")
@@ -353,10 +354,10 @@ if start_button:
         st.code(traceback.format_exc())
 
 # ==========================================
-# 🚨 [안전 장치] 표 그리기 및 독립 엑셀 다운로드 렌더러 함수
+# 🚨 [완벽 수정] '전체 순위' 단일 다운로드 버튼 렌더러 함수
 # ==========================================
 def display_safe_dataframe(df, cols, title, link_config):
-    # 상단 TOP 20 파트 구성
+    # 상단 다운로드 버튼 및 TOP 20 영역
     col1, col2 = st.columns([8, 2])
     with col1:
         st.subheader(f"🌟 [{title} TOP 20]")
@@ -366,36 +367,25 @@ def display_safe_dataframe(df, cols, title, link_config):
         st.dataframe(pd.DataFrame(columns=cols), column_config=link_config, use_container_width=True)
     else:
         with col2:
-            csv_top = df[cols].head(20).to_csv(index=False, encoding='utf-8-sig')
+            # 🚨 TOP 20이 아니라 df 전체를 변환해서 한 번에 저장합니다.
+            csv_all = df[cols].to_csv(index=False).encode('utf-8-sig')
             st.download_button(
-                label="📥 TOP 20 엑셀 다운로드",
-                data=csv_top,
-                file_name=f"{title}_TOP20.csv",
+                label="📥 전체 순위 엑셀 다운로드",
+                data=csv_all,
+                file_name=f"{title}_전체순위.csv",
                 mime="text/csv",
-                key=f"{title}_top"
+                key=f"{title}_all"
             )
         st.dataframe(df[cols].head(20), column_config=link_config, use_container_width=True)
         
     st.divider()
     
-    # 하위 나머지 전체 파트 구성
-    col3, col4 = st.columns([8, 2])
-    with col3:
-        st.subheader(f"📊 [{title} 21위 ~ 나머지 전체]")
-        
+    # 하위 나머지 전체 영역 (다운로드 버튼 삭제됨)
+    st.subheader(f"📊 [{title} 21위 ~ 나머지 전체]")
     if len(df) <= 20:
-        st.info("⚠️ 후속 순위를 마크한 종목이 존재하지 않습니다.")
+        st.info("⚠️ 하위 후속 순위 종목이 존재하지 않습니다.")
         st.dataframe(pd.DataFrame(columns=cols), column_config=link_config, use_container_width=True)
     else:
-        with col4:
-            csv_rest = df[cols].iloc[20:].to_csv(index=False, encoding='utf-8-sig')
-            st.download_button(
-                label="📥 나머지 전체 엑셀 다운로드",
-                data=csv_rest,
-                file_name=f"{title}_나머지.csv",
-                mime="text/csv",
-                key=f"{title}_rest"
-            )
         st.dataframe(df[cols].iloc[20:], column_config=link_config, use_container_width=True)
 
 # ==========================================
@@ -405,7 +395,7 @@ if st.session_state.scanned_data is not None:
     result_df = st.session_state.scanned_data
     
     if not st.session_state.krx_status:
-        st.error("🚨 **[서버 차단 알림] 한국거래소(KRX) 노드 접속이 제한된 상태입니다.** \n현재 시스템은 실시간 차트 점수 단독 산출 모드로 구동 중입니다. 차단이 풀리면 재무/수급 분석이 자동 재개됩니다.")
+        st.error("🚨 **[서버 차단 알림] 과도한 중복 요청으로 거래소 노드가 임시 차단 상태입니다.** \n현재는 실시간 차트 점수 단독 산출 모드로 구동 중입니다. 차단이 풀리면 재무/수급 분석이 자동 재개됩니다.")
 
     tab1, tab2, tab3, tab4 = st.tabs(["🏆 종합 전체 랭킹", "💼 재무/가치 랭킹", "🤝 수급주 랭킹", "📈 차트/타이밍 랭킹"])
 
@@ -434,7 +424,6 @@ if st.session_state.scanned_data is not None:
     with tab4:
         st.subheader("📈 [차트 분석] 패턴별 대장주 분리 보기")
         
-        # 화면 튕김 현상을 근본적으로 봉쇄한 7단 수평 서브 탭 시스템
         chart_sub1, chart_sub2, chart_sub3, chart_sub4, chart_sub5, chart_sub6, chart_sub7 = st.tabs([
             "🌟 차트 종합", "🎯 프로 선취매 (VCP/다이버/갭)", "⏳ 일반 선취매 (눌림목/임박)", "⚡ 돌파 (골크/정배열)", "🥣 바닥 (밥그릇/탈출)", "🔥 거래량 폭발", "🤝 외인 수급 교집합"
         ])
