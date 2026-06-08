@@ -1,4 +1,3 @@
-
 import streamlit as st
 import os
 import pandas as pd
@@ -167,9 +166,23 @@ if start_button:
             st.session_state.krx_status = False
 
         progress_bar.progress(30)
-        progress_text.text("2/4: 필터링 조건 세팅 중...")
+        progress_text.text("2/4: 필터링 조건 기둥 세팅 중...")
 
-        krx_list = fdr.StockListing('KRX').dropna(subset=['Close', 'Marcap'])
+        # 🚨 [404 에러 원천 차단] 고장난 FDR 라이브러리를 버리고 Pykrx 자체 엔진으로 종목 리스트 추출
+        try:
+            df_kospi = stock.get_market_cap(latest_date, market="KOSPI")
+            df_kosdaq = stock.get_market_cap(latest_date, market="KOSDAQ")
+            krx_list = pd.concat([df_kospi, df_kosdaq]).reset_index()
+            # Pykrx 컬럼명을 표준 코드로 변환
+            krx_list = krx_list.rename(columns={'티커': 'Code', '종가': 'Close', '시가총액': 'Marcap'})
+        except:
+            # 혹시 모를 대비책 (FDR의 보조 서버 사용)
+            try:
+                krx_list = fdr.StockListing('KRX-DESC')
+            except:
+                krx_list = pd.concat([fdr.StockListing('KOSPI'), fdr.StockListing('KOSDAQ')])
+
+        krx_list = krx_list.dropna(subset=['Close', 'Marcap'])
         cond_price = krx_list['Close'] <= set_price
         cond_marcap_max = krx_list['Marcap'] <= set_marcap
         cond_marcap_min = krx_list['Marcap'] >= min_marcap
@@ -183,7 +196,9 @@ if start_button:
 
         for i, (index, row) in enumerate(target_stocks.iterrows()):
             code = row['Code']
-            name = row['Name']
+            
+            # 🚨 종목명(Name)도 외부 에러 없이 Pykrx에서 직접 안전하게 가져옴
+            name = row['Name'] if 'Name' in target_stocks.columns else stock.get_market_ticker_name(code)
 
             if i % 5 == 0:
                 current_prog = 30 + int((i / total_count) * 70)
@@ -350,14 +365,13 @@ if start_button:
             st.error("지정한 조건 범위 필터에 부합하는 종목이 시장에 없습니다.")
 
     except Exception as e:
-        st.error("🚨 시스템 런타임 에러가 발생했습니다.")
+        st.error(f"🚨 시스템 런타임 에러가 발생했습니다: {e}")
         st.code(traceback.format_exc())
 
 # ==========================================
-# 🚨 [완벽 수정] '전체 순위' 단일 다운로드 버튼 렌더러 함수
+# 🚨 '전체 순위' 단일 다운로드 버튼 렌더러 함수
 # ==========================================
 def display_safe_dataframe(df, cols, title, link_config):
-    # 상단 다운로드 버튼 및 TOP 20 영역
     col1, col2 = st.columns([8, 2])
     with col1:
         st.subheader(f"🌟 [{title} TOP 20]")
@@ -367,7 +381,6 @@ def display_safe_dataframe(df, cols, title, link_config):
         st.dataframe(pd.DataFrame(columns=cols), column_config=link_config, use_container_width=True)
     else:
         with col2:
-            # 🚨 TOP 20이 아니라 df 전체를 변환해서 한 번에 저장합니다.
             csv_all = df[cols].to_csv(index=False).encode('utf-8-sig')
             st.download_button(
                 label="📥 전체 순위 엑셀 다운로드",
@@ -380,7 +393,6 @@ def display_safe_dataframe(df, cols, title, link_config):
         
     st.divider()
     
-    # 하위 나머지 전체 영역 (다운로드 버튼 삭제됨)
     st.subheader(f"📊 [{title} 21위 ~ 나머지 전체]")
     if len(df) <= 20:
         st.info("⚠️ 하위 후속 순위 종목이 존재하지 않습니다.")
@@ -399,7 +411,6 @@ if st.session_state.scanned_data is not None:
 
     tab1, tab2, tab3, tab4 = st.tabs(["🏆 종합 전체 랭킹", "💼 재무/가치 랭킹", "🤝 수급주 랭킹", "📈 차트/타이밍 랭킹"])
 
-    # 공통 기둥형 컬럼 구조 정의
     all_cols = ['종합순위', '종목명', '종합점수', '재무점수', '수급점수', '차트점수', '차트상태', '차트채점내역', '현재가', 'PER', 'PBR', '배당률(%)', '외인매수(원)', '기관매수(원)', '거래량배수', '바로가기']
 
     link_column_config = {
